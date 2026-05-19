@@ -1,0 +1,22 @@
+{
+  "name": "betting-simulator-worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "check": "tsc --noEmit",
+    "deploy": "wrangler deploy",
+    "smoke": "node --experimental-strip-types scripts/smoke.ts",
+    "typegen": "wrangler types",
+    "migrate:local": "wrangler d1 migrations apply betting-simulator-db --local",
+    "migrate:remote": "wrangler d1 migrations apply betting-simulator-db --remote"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "wrangler": "^4.92.0"
+  },
+  "dependencies": {
+    "jose": "^6.2.3"
+  }
+}

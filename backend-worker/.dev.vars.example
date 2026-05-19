@@ -1,0 +1,5 @@
+FIREBASE_API_KEY=your-firebase-web-api-key
+FIREBASE_PROJECT_ID=your-firebase-project-id
+ADMIN_EMAILS=admin@example.com
+ODDS_API_KEY=your-odds-api-key-here
+FOOTBALL_DATA_API_KEY=your-football-data-api-key-here

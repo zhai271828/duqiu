@@ -1,0 +1,33 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+  "name": "betting-simulator-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2024-11-01",
+  "workers_dev": true,
+  "routes": [
+    {
+      "pattern": "api.can666.xyz",
+      "custom_domain": true
+    }
+  ],
+  "triggers": {
+    "crons": ["0 0-15 * * *"]
+  },
+  "d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "betting-simulator-db",
+			"database_id": "4f249e9f-b878-42f7-a52a-2a648e56e9a5",
+			"preview_database_id": "4f249e9f-b878-42f7-a52a-2a648e56e9a5",
+			"migrations_dir": "migrations"
+		}
+	],
+  "vars": {
+    "ODDS_API_BASE_URL": "https://api.the-odds-api.com/v4",
+    "ODDS_API_MONTHLY_QUOTA": "500",
+    "ODDS_API_DAILY_LIMIT": "16",
+    "FOOTBALL_DATA_BASE_URL": "https://api.football-data.org/v4",
+    "THE_SPORTS_DB_BASE_URL": "https://www.thesportsdb.com/api/v1/json/3",
+    "ADMIN_EMAILS": "can105659@gmail.com"
+  }
+}
