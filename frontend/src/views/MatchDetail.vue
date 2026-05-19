@@ -68,7 +68,7 @@
             class="odd-option"
             :class="{ selected: betSelection === 'draw' }"
             @click="selectOdds('draw')"
-            v-if="match.avg_odds.draw"
+            v-if="match.allow_draw && match.avg_odds.draw"
           >
             <div class="odd-label">平局</div>
             <div class="odd-value">{{ match.avg_odds.draw }}</div>

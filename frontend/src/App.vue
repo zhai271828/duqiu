@@ -13,7 +13,7 @@
           <router-link to="/leaderboard" class="nav-link">排行榜</router-link>
           <template v-if="isLoggedIn">
             <router-link to="/my-bets" class="nav-link">我的下注</router-link>
-            <router-link v-if="isAdmin" to="/admin/bets" class="nav-link">管理后台</router-link>
+            <router-link v-if="isAdmin" to="/admin/matches" class="nav-link">管理后台</router-link>
             <router-link to="/profile" class="nav-link">个人中心</router-link>
             <el-button type="danger" @click="logout">退出</el-button>
           </template>

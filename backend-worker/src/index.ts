@@ -55,7 +55,38 @@ const REDEEM_CODES: Record<string, number> = {
   vip2024: 20000
 }
 
-const FIXED_ADMIN_EMAIL = 'can105659@gmail.com'
+const DEFAULT_ADMIN_EMAIL = 'admin@example.com'
+
+type CustomMatchPayload = {
+  sport?: string
+  league?: string
+  home_team?: string
+  away_team?: string
+  start_time?: string
+  allow_draw?: boolean
+  odds?: {
+    home?: number
+    draw?: number | null
+    away?: number
+  }
+}
+
+type CustomMatchSettlementPayload = {
+  home_score?: number
+  away_score?: number
+}
+
+type ValidatedCustomMatchInput = {
+  sport: 'soccer' | 'basketball'
+  league: string
+  homeTeam: string
+  awayTeam: string
+  startTimeIso: string
+  allowDraw: boolean
+  homeOdds: number
+  drawOdds: number | null
+  awayOdds: number
+}
 
 let schemaReady: Promise<void> | null = null
 let seedReady: Promise<void> | null = null
@@ -243,6 +274,28 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
     return handleAdminBets(request, url, env)
   }
 
+  if (pathname === '/api/admin/matches' && request.method === 'GET') {
+    return handleAdminMatches(request, url, env)
+  }
+
+  if (pathname === '/api/admin/matches' && request.method === 'POST') {
+    return handleCreateAdminMatch(request, env)
+  }
+
+  const adminMatchDetail = pathname.match(/^\/api\/admin\/matches\/(\d+)$/)
+  if (adminMatchDetail && request.method === 'GET') {
+    return handleGetAdminMatch(request, env, Number(adminMatchDetail[1]))
+  }
+
+  if (adminMatchDetail && request.method === 'PUT') {
+    return handleUpdateAdminMatch(request, env, Number(adminMatchDetail[1]))
+  }
+
+  const adminMatchSettle = pathname.match(/^\/api\/admin\/matches\/(\d+)\/settle$/)
+  if (adminMatchSettle && request.method === 'POST') {
+    return handleSettleAdminMatch(request, env, Number(adminMatchSettle[1]))
+  }
+
   if (pathname === '/api/admin/users' && request.method === 'GET') {
     return handleAdminUsers(request, url, env)
   }
@@ -265,6 +318,14 @@ function popularLeaguePlaceholders(): string {
 
 function sqlPlaceholders(count: number): string {
   return Array.from({ length: count }, () => '?').join(', ')
+}
+
+function publicMatchVisibilityClause(alias: string): string {
+  return `(${alias}.league IN (${popularLeaguePlaceholders()}) OR ${alias}.source_type = 'custom')`
+}
+
+function defaultAllowDrawForSport(sport: string): number {
+  return sport === 'basketball' ? 0 : 1
 }
 
 function readPositiveInteger(value: string | null, fallback: number, min: number, max: number): number {
@@ -301,10 +362,29 @@ function oddsColumnForSelection(selection: string): 'home_odds' | 'draw_odds' | 
   return null
 }
 
+function normalizeCustomMatchSport(value: string | null | undefined): 'soccer' | 'basketball' | null {
+  const normalized = String(value || '').trim().toLowerCase()
+  if (normalized === 'soccer' || normalized === 'basketball') {
+    return normalized
+  }
+  return null
+}
+
+function isPositiveOddsValue(value: unknown): value is number {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed > 1
+}
+
 function parseScoreValue(value: string | number | null | undefined): number | null {
   if (value === null || value === undefined) return null
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : null
+}
+
+function parseNonNegativeInteger(value: unknown): number | null {
+  const parsed = Number(value)
+  if (!Number.isInteger(parsed) || parsed < 0) return null
+  return parsed
 }
 
 function getShanghaiDateKey(date = new Date()): string {
@@ -398,6 +478,113 @@ function toBetResponse(bet: DbBetRow) {
           start_time: normalizeUtcIso(bet.start_time)
         }
       : null
+  }
+}
+
+function toAdminMatchResponse(row: {
+  id: number
+  external_id: string | null
+  sport: string
+  league: string
+  home_team: string
+  away_team: string
+  start_time: string
+  status: string
+  source_type: string
+  allow_draw: number
+  home_score: number | null
+  away_score: number | null
+  created_at: string
+  total_bets?: number | null
+  pending_bets?: number | null
+  avg_home_odds?: number | null
+  avg_draw_odds?: number | null
+  avg_away_odds?: number | null
+}) {
+  return {
+    id: row.id,
+    external_id: row.external_id,
+    sport: row.sport,
+    league: row.league,
+    home_team: row.home_team,
+    away_team: row.away_team,
+    start_time: normalizeUtcIso(row.start_time),
+    status: row.status,
+    source_type: row.source_type,
+    allow_draw: row.allow_draw === 1,
+    home_score: row.home_score,
+    away_score: row.away_score,
+    created_at: normalizeUtcIso(row.created_at),
+    total_bets: Number(row.total_bets || 0),
+    pending_bets: Number(row.pending_bets || 0),
+    locked: Number(row.total_bets || 0) > 0,
+    odds: {
+      home: row.avg_home_odds === null || row.avg_home_odds === undefined ? null : round2(Number(row.avg_home_odds)),
+      draw: row.avg_draw_odds === null || row.avg_draw_odds === undefined ? null : round2(Number(row.avg_draw_odds)),
+      away: row.avg_away_odds === null || row.avg_away_odds === undefined ? null : round2(Number(row.avg_away_odds))
+    }
+  }
+}
+
+function validateCustomMatchInput(body: CustomMatchPayload | null): ValidatedCustomMatchInput | Response {
+  const sport = normalizeCustomMatchSport(body?.sport)
+  if (!sport) {
+    return errorResponse('仅支持 soccer 或 basketball', 400)
+  }
+
+  const league = String(body?.league || '').trim()
+  const homeTeam = String(body?.home_team || '').trim()
+  const awayTeam = String(body?.away_team || '').trim()
+  const startTimeRaw = String(body?.start_time || '').trim()
+  const allowDraw = typeof body?.allow_draw === 'boolean' ? body.allow_draw : null
+  const startTimeMs = Date.parse(startTimeRaw)
+
+  if (!league || !homeTeam || !awayTeam || !startTimeRaw) {
+    return errorResponse('请填写完整的比赛信息', 400)
+  }
+
+  if (homeTeam.toLowerCase() === awayTeam.toLowerCase()) {
+    return errorResponse('主队和客队不能相同', 400)
+  }
+
+  if (allowDraw === null) {
+    return errorResponse('请明确设置是否允许平局', 400)
+  }
+
+  if (!Number.isFinite(startTimeMs)) {
+    return errorResponse('开赛时间格式无效', 400)
+  }
+
+  if (startTimeMs <= Date.now()) {
+    return errorResponse('开赛时间必须晚于当前时间', 400)
+  }
+
+  const homeOdds = Number(body?.odds?.home)
+  const drawOddsValue = body?.odds?.draw
+  const awayOdds = Number(body?.odds?.away)
+
+  if (!isPositiveOddsValue(homeOdds) || !isPositiveOddsValue(awayOdds)) {
+    return errorResponse('主胜和客胜赔率必须大于 1', 400)
+  }
+
+  if (allowDraw) {
+    if (!isPositiveOddsValue(drawOddsValue)) {
+      return errorResponse('允许平局时，平局赔率必须大于 1', 400)
+    }
+  } else if (drawOddsValue !== null && drawOddsValue !== undefined) {
+    return errorResponse('不允许平局的比赛不能设置平局赔率', 400)
+  }
+
+  return {
+    sport,
+    league,
+    homeTeam,
+    awayTeam,
+    startTimeIso: new Date(startTimeMs).toISOString(),
+    allowDraw,
+    homeOdds: round2(homeOdds),
+    drawOdds: allowDraw ? round2(Number(drawOddsValue)) : null,
+    awayOdds: round2(awayOdds)
   }
 }
 
@@ -535,9 +722,12 @@ async function setSetting(env: Env, key: string, value: string): Promise<void> {
 async function countPendingBets(env: Env): Promise<number> {
   const row = await env.DB.prepare(
     `SELECT COUNT(*) AS count
-     FROM bets
-     WHERE status = 'pending'`
-  ).first<{ count: number }>()
+     FROM bets b
+     JOIN matches m ON m.id = b.match_id
+     WHERE b.status = 'pending'
+       AND m.source_type = 'synced'
+       AND m.league IN (${popularLeaguePlaceholders()})`
+  ).bind(...POPULAR_DISPLAY_LEAGUES).first<{ count: number }>()
 
   return Number(row?.count || 0)
 }
@@ -553,10 +743,13 @@ async function getPendingResultCandidates(env: Env, date = new Date()): Promise<
        m.home_team,
        m.away_team,
        m.start_time,
-       m.status
+       m.status,
+       m.source_type,
+       m.allow_draw
      FROM bets b
      JOIN matches m ON m.id = b.match_id
      WHERE b.status = 'pending'
+       AND m.source_type = 'synced'
        AND m.league IN (${popularLeaguePlaceholders()})
        AND m.status IN ('upcoming', 'live', 'finished', 'postponed', 'cancelled')
        AND datetime(m.start_time) <= datetime(?)
@@ -758,7 +951,7 @@ async function makeSkippedResult(
 }
 
 function deriveResultStatusFromScores(
-  league: string,
+  allowDraw: boolean,
   homeScore: number | null,
   awayScore: number | null
 ): 'home' | 'draw' | 'away' | null {
@@ -766,7 +959,7 @@ function deriveResultStatusFromScores(
 
   if (homeScore > awayScore) return 'home'
   if (homeScore < awayScore) return 'away'
-  if (isSoccerLeague(league)) return 'draw'
+  if (allowDraw) return 'draw'
   return null
 }
 
@@ -923,7 +1116,10 @@ async function syncResultsData(env: Env, options: { automatic?: boolean; now?: D
   }
 }
 
-async function settlePendingBets(env: Env): Promise<{
+async function settlePendingBets(
+  env: Env,
+  options: { matchId?: number; sourceType?: 'synced' | 'custom' } = {}
+): Promise<{
   settled: number
   won: number
   lost: number
@@ -931,6 +1127,23 @@ async function settlePendingBets(env: Env): Promise<{
   skipped: number
   error?: string
 }> {
+  const sourceType = options.sourceType || 'synced'
+  const whereParts = [`b.status = 'pending'`]
+  const params: Array<string | number> = []
+
+  if (sourceType === 'synced') {
+    whereParts.push(`m.source_type = 'synced'`)
+    whereParts.push(`m.league IN (${popularLeaguePlaceholders()})`)
+    params.push(...POPULAR_DISPLAY_LEAGUES)
+  } else {
+    whereParts.push(`m.source_type = 'custom'`)
+  }
+
+  if (options.matchId !== undefined) {
+    whereParts.push(`m.id = ?`)
+    params.push(options.matchId)
+  }
+
   const pendingResult = await env.DB.prepare(
     `SELECT
        b.id,
@@ -946,16 +1159,19 @@ async function settlePendingBets(env: Env): Promise<{
        b.settled_at,
        b.created_at,
        m.league,
+       m.allow_draw,
+       m.source_type,
        m.status AS match_status,
        m.home_score,
        m.away_score
      FROM bets b
      JOIN matches m ON m.id = b.match_id
-     WHERE b.status = 'pending'
-       AND m.league IN (${popularLeaguePlaceholders()})`
-  ).bind(...POPULAR_DISPLAY_LEAGUES).all<
+     WHERE ${whereParts.join(' AND ')}`
+  ).bind(...params).all<
     DbBetRow & {
       league: string
+      allow_draw: number
+      source_type: string
       match_status: string
       home_score: number | null
       away_score: number | null
@@ -988,7 +1204,7 @@ async function settlePendingBets(env: Env): Promise<{
       continue
     }
 
-    const outcome = deriveResultStatusFromScores(bet.league, bet.home_score, bet.away_score)
+    const outcome = deriveResultStatusFromScores(bet.allow_draw === 1, bet.home_score, bet.away_score)
     if (!outcome) {
       skipped += 1
       continue
@@ -1069,7 +1285,9 @@ type FirebaseUserSnapshot = {
 }
 
 function configuredAdminEmails(env: Env): string[] {
-  const emails = [FIXED_ADMIN_EMAIL, ...(env.ADMIN_EMAILS || '').split(',')]
+  const rawEmails = env.ADMIN_EMAILS?.trim() ? env.ADMIN_EMAILS : DEFAULT_ADMIN_EMAIL
+  const emails = rawEmails
+    .split(',')
     .map((item) => item.trim().toLowerCase())
     .filter(Boolean)
 
@@ -1077,7 +1295,7 @@ function configuredAdminEmails(env: Env): string[] {
 }
 
 function getPrimaryAdminEmail(env: Env): string {
-  return configuredAdminEmails(env)[0] || FIXED_ADMIN_EMAIL
+  return configuredAdminEmails(env)[0] || DEFAULT_ADMIN_EMAIL
 }
 
 function normalizeEmail(email: string): string {
@@ -1757,6 +1975,8 @@ async function handleGetMatches(url: URL, env: Env): Promise<Response> {
       m.away_team,
       m.start_time,
       m.status,
+      m.source_type,
+      m.allow_draw,
       m.home_score,
       m.away_score,
       COUNT(o.id) AS odds_count,
@@ -1765,7 +1985,7 @@ async function handleGetMatches(url: URL, env: Env): Promise<Response> {
       AVG(o.away_odds) AS avg_away_odds
     FROM matches m
     LEFT JOIN odds o ON o.match_id = m.id AND o.market = 'h2h'
-    WHERE m.league IN (${popularLeaguePlaceholders()})
+    WHERE ${publicMatchVisibilityClause('m')}
   `
 
   if (sport) {
@@ -1802,7 +2022,7 @@ async function handleGetMatches(url: URL, env: Env): Promise<Response> {
 
 async function handleGetMatch(env: Env, matchId: number): Promise<Response> {
   const match = await env.DB.prepare(
-    `SELECT id, external_id, sport, league, home_team, away_team, start_time, status, home_score, away_score, created_at
+    `SELECT id, external_id, sport, league, home_team, away_team, start_time, status, source_type, allow_draw, home_score, away_score, created_at
      FROM matches WHERE id = ?`
   ).bind(matchId).first<DbMatchRow>()
 
@@ -1844,15 +2064,15 @@ async function handleGetMatch(env: Env, matchId: number): Promise<Response> {
 
 async function handleGetLeagues(url: URL, env: Env): Promise<Response> {
   const sport = url.searchParams.get('sport')
-  let sql = `SELECT DISTINCT league FROM matches WHERE league IN (${popularLeaguePlaceholders()})`
+  let sql = `SELECT DISTINCT m.league FROM matches m WHERE ${publicMatchVisibilityClause('m')}`
   const params: Array<string> = [...POPULAR_DISPLAY_LEAGUES]
 
   if (sport) {
-    sql += ` AND sport = ?`
+    sql += ` AND m.sport = ?`
     params.push(sport)
   }
 
-  sql += ` ORDER BY league`
+  sql += ` ORDER BY m.league`
 
   const result = await env.DB.prepare(sql).bind(...params).all<{ league: string }>()
 
@@ -1884,17 +2104,20 @@ async function shouldUpdateMatch(env: Env, matchId: number, startTimeIso: string
 async function upsertMatchFromOddsEvent(env: Env, event: OddsApiEvent): Promise<number> {
   const normalizedLeague = translateLeague(event.sport_title || 'Soccer')
   const normalizedSport = event.sport_key === 'basketball_nba' ? 'basketball' : 'soccer'
+  const allowDraw = defaultAllowDrawForSport(normalizedSport)
 
   const result = await env.DB.prepare(
-    `INSERT INTO matches (external_id, sport, league, home_team, away_team, start_time, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, 'upcoming', ?)
+    `INSERT INTO matches (external_id, sport, league, home_team, away_team, start_time, status, source_type, allow_draw, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, 'upcoming', 'synced', ?, ?)
      ON CONFLICT(external_id) DO UPDATE SET
        sport = excluded.sport,
        league = excluded.league,
        home_team = excluded.home_team,
        away_team = excluded.away_team,
        start_time = excluded.start_time,
-       status = excluded.status
+       status = excluded.status,
+       source_type = excluded.source_type,
+       allow_draw = excluded.allow_draw
      RETURNING id`
   ).bind(
     event.id,
@@ -1903,6 +2126,7 @@ async function upsertMatchFromOddsEvent(env: Env, event: OddsApiEvent): Promise<
     translateTeam(event.home_team),
     translateTeam(event.away_team),
     new Date(event.commence_time).toISOString(),
+    allowDraw,
     nowIso()
   ).first<{ id: number }>()
 
@@ -1942,17 +2166,20 @@ async function syncOddsData(env: Env, force: boolean) {
     const matchStatements = events.map((event) => {
       const normalizedLeague = translateLeague(event.sport_title || 'Soccer')
       const normalizedSport = event.sport_key === 'basketball_nba' ? 'basketball' : 'soccer'
+      const allowDraw = defaultAllowDrawForSport(normalizedSport)
 
       return env.DB.prepare(
-        `INSERT INTO matches (external_id, sport, league, home_team, away_team, start_time, status, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, 'upcoming', ?)
+        `INSERT INTO matches (external_id, sport, league, home_team, away_team, start_time, status, source_type, allow_draw, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'upcoming', 'synced', ?, ?)
          ON CONFLICT(external_id) DO UPDATE SET
            sport = excluded.sport,
            league = excluded.league,
            home_team = excluded.home_team,
            away_team = excluded.away_team,
            start_time = excluded.start_time,
-           status = excluded.status`
+           status = excluded.status,
+           source_type = excluded.source_type,
+           allow_draw = excluded.allow_draw`
       ).bind(
         event.id,
         normalizedSport,
@@ -1960,6 +2187,7 @@ async function syncOddsData(env: Env, force: boolean) {
         translateTeam(event.home_team),
         translateTeam(event.away_team),
         new Date(event.commence_time).toISOString(),
+        allowDraw,
         nowIso()
       )
     })
@@ -2103,7 +2331,7 @@ async function syncScheduleData(env: Env, days: number) {
     if (existing?.id) {
       await env.DB.prepare(
         `UPDATE matches
-         SET league = ?, home_team = ?, away_team = ?, start_time = ?, status = ?, home_score = ?, away_score = ?
+         SET league = ?, home_team = ?, away_team = ?, start_time = ?, status = ?, source_type = 'synced', allow_draw = 1, home_score = ?, away_score = ?
          WHERE id = ?`
       ).bind(
         translateLeague(event.league_cn || event.league),
@@ -2147,8 +2375,8 @@ async function syncScheduleData(env: Env, days: number) {
 
 async function insertScheduleMatch(env: Env, event: ScheduleEvent): Promise<void> {
   await env.DB.prepare(
-    `INSERT INTO matches (external_id, sport, league, home_team, away_team, start_time, status, home_score, away_score, created_at)
-     VALUES (?, 'soccer', ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO matches (external_id, sport, league, home_team, away_team, start_time, status, source_type, allow_draw, home_score, away_score, created_at)
+     VALUES (?, 'soccer', ?, ?, ?, ?, ?, 'synced', 1, ?, ?, ?)`
   ).bind(
     event.external_id,
     translateLeague(event.league_cn || event.league),
@@ -2376,7 +2604,7 @@ async function handlePlaceBet(request: Request, env: Env): Promise<Response> {
   }
 
   const match = await env.DB.prepare(
-    `SELECT id, league, home_team, away_team, start_time, status
+    `SELECT id, league, home_team, away_team, start_time, status, allow_draw, source_type
      FROM matches WHERE id = ?`
   ).bind(matchId).first<{
     id: number
@@ -2385,6 +2613,8 @@ async function handlePlaceBet(request: Request, env: Env): Promise<Response> {
     away_team: string
     start_time: string
     status: string
+    allow_draw: number
+    source_type: string
   }>()
 
   if (!match) {
@@ -2404,9 +2634,7 @@ async function handlePlaceBet(request: Request, env: Env): Promise<Response> {
     return errorResponse('比赛已经开始，无法下注', 400)
   }
 
-  const allowedSelections = isBasketballLeague(match.league)
-    ? ['home', 'away']
-    : ['home', 'draw', 'away']
+  const allowedSelections = match.allow_draw === 1 ? ['home', 'draw', 'away'] : ['home', 'away']
   if (!allowedSelections.includes(selection)) {
     return errorResponse('当前比赛不支持该投注选项', 400)
   }
@@ -2740,13 +2968,302 @@ async function handleHomepageStats(env: Env): Promise<Response> {
   const betCount = await env.DB.prepare(`SELECT COUNT(*) AS count FROM bets`).first<{ count: number }>()
   const matchCount = await env.DB.prepare(
     `SELECT COUNT(*) AS count
-     FROM matches
-     WHERE league IN (${popularLeaguePlaceholders()}) AND status = 'upcoming'`
+     FROM matches m
+     WHERE ${publicMatchVisibilityClause('m')} AND m.status = 'upcoming'`
   ).bind(...POPULAR_DISPLAY_LEAGUES).first<{ count: number }>()
 
   return json({
     totalBets: Number(betCount?.count ?? 0),
     totalMatches: Number(matchCount?.count ?? 0)
+  })
+}
+
+async function loadAdminCustomMatchResponse(env: Env, matchId: number) {
+  const row = await env.DB.prepare(
+    `SELECT
+       m.id,
+       m.external_id,
+       m.sport,
+       m.league,
+       m.home_team,
+       m.away_team,
+       m.start_time,
+       m.status,
+       m.source_type,
+       m.allow_draw,
+       m.home_score,
+       m.away_score,
+       m.created_at,
+       (SELECT COUNT(*) FROM bets b WHERE b.match_id = m.id) AS total_bets,
+       (SELECT COUNT(*) FROM bets b WHERE b.match_id = m.id AND b.status = 'pending') AS pending_bets,
+       (SELECT o.home_odds FROM odds o WHERE o.match_id = m.id AND o.market = 'h2h' ORDER BY CASE WHEN o.bookmaker = 'ADMIN' THEN 0 ELSE 1 END, o.id LIMIT 1) AS avg_home_odds,
+       (SELECT o.draw_odds FROM odds o WHERE o.match_id = m.id AND o.market = 'h2h' ORDER BY CASE WHEN o.bookmaker = 'ADMIN' THEN 0 ELSE 1 END, o.id LIMIT 1) AS avg_draw_odds,
+       (SELECT o.away_odds FROM odds o WHERE o.match_id = m.id AND o.market = 'h2h' ORDER BY CASE WHEN o.bookmaker = 'ADMIN' THEN 0 ELSE 1 END, o.id LIMIT 1) AS avg_away_odds
+     FROM matches m
+     WHERE m.id = ? AND m.source_type = 'custom'`
+  ).bind(matchId).first<{
+    id: number
+    external_id: string | null
+    sport: string
+    league: string
+    home_team: string
+    away_team: string
+    start_time: string
+    status: string
+    source_type: string
+    allow_draw: number
+    home_score: number | null
+    away_score: number | null
+    created_at: string
+    total_bets: number | null
+    pending_bets: number | null
+    avg_home_odds: number | null
+    avg_draw_odds: number | null
+    avg_away_odds: number | null
+  }>()
+
+  if (!row) return null
+
+  const oddsResult = await env.DB.prepare(
+    `SELECT id, match_id, bookmaker, market, home_odds, away_odds, draw_odds, updated_at
+     FROM odds
+     WHERE match_id = ? AND market = 'h2h'
+     ORDER BY CASE WHEN bookmaker = 'ADMIN' THEN 0 ELSE 1 END, bookmaker, id`
+  ).bind(matchId).all<DbOddsRow>()
+
+  return {
+    ...toAdminMatchResponse(row),
+    odds_rows: (oddsResult.results ?? []).map(toOddsResponse)
+  }
+}
+
+async function handleAdminMatches(request: Request, url: URL, env: Env): Promise<Response> {
+  const adminUserId = await requireAdminUserId(request, env)
+  if (adminUserId instanceof Response) return adminUserId
+
+  const { page, pageSize, offset } = readPagination(url, 20, 100)
+  const totalRow = await env.DB.prepare(
+    `SELECT COUNT(*) AS count
+     FROM matches
+     WHERE source_type = 'custom'`
+  ).first<{ count: number }>()
+
+  const result = await env.DB.prepare(
+    `SELECT
+       m.id,
+       m.external_id,
+       m.sport,
+       m.league,
+       m.home_team,
+       m.away_team,
+       m.start_time,
+       m.status,
+       m.source_type,
+       m.allow_draw,
+       m.home_score,
+       m.away_score,
+       m.created_at,
+       (SELECT COUNT(*) FROM bets b WHERE b.match_id = m.id) AS total_bets,
+       (SELECT COUNT(*) FROM bets b WHERE b.match_id = m.id AND b.status = 'pending') AS pending_bets,
+       (SELECT o.home_odds FROM odds o WHERE o.match_id = m.id AND o.market = 'h2h' ORDER BY CASE WHEN o.bookmaker = 'ADMIN' THEN 0 ELSE 1 END, o.id LIMIT 1) AS avg_home_odds,
+       (SELECT o.draw_odds FROM odds o WHERE o.match_id = m.id AND o.market = 'h2h' ORDER BY CASE WHEN o.bookmaker = 'ADMIN' THEN 0 ELSE 1 END, o.id LIMIT 1) AS avg_draw_odds,
+       (SELECT o.away_odds FROM odds o WHERE o.match_id = m.id AND o.market = 'h2h' ORDER BY CASE WHEN o.bookmaker = 'ADMIN' THEN 0 ELSE 1 END, o.id LIMIT 1) AS avg_away_odds
+     FROM matches m
+     WHERE m.source_type = 'custom'
+     ORDER BY datetime(m.start_time) DESC, m.id DESC
+     LIMIT ? OFFSET ?`
+  ).bind(pageSize, offset).all<{
+    id: number
+    external_id: string | null
+    sport: string
+    league: string
+    home_team: string
+    away_team: string
+    start_time: string
+    status: string
+    source_type: string
+    allow_draw: number
+    home_score: number | null
+    away_score: number | null
+    created_at: string
+    total_bets: number | null
+    pending_bets: number | null
+    avg_home_odds: number | null
+    avg_draw_odds: number | null
+    avg_away_odds: number | null
+  }>()
+
+  return json({
+    matches: (result.results ?? []).map(toAdminMatchResponse),
+    total: Number(totalRow?.count || 0),
+    page,
+    page_size: pageSize
+  })
+}
+
+async function handleGetAdminMatch(request: Request, env: Env, matchId: number): Promise<Response> {
+  const adminUserId = await requireAdminUserId(request, env)
+  if (adminUserId instanceof Response) return adminUserId
+
+  const match = await loadAdminCustomMatchResponse(env, matchId)
+  if (!match) {
+    return errorResponse('自定义比赛不存在', 404)
+  }
+
+  return json({ match })
+}
+
+async function handleCreateAdminMatch(request: Request, env: Env): Promise<Response> {
+  const adminUserId = await requireAdminUserId(request, env)
+  if (adminUserId instanceof Response) return adminUserId
+
+  const body = await readJson<CustomMatchPayload>(request)
+  const validated = validateCustomMatchInput(body)
+  if (validated instanceof Response) return validated
+
+  const createdAt = nowIso()
+  const insertResult = await env.DB.prepare(
+    `INSERT INTO matches (
+       external_id, sport, league, home_team, away_team, start_time, status, source_type, allow_draw, home_score, away_score, created_at
+     ) VALUES (
+       NULL, ?, ?, ?, ?, ?, 'upcoming', 'custom', ?, NULL, NULL, ?
+     )
+     RETURNING id`
+  ).bind(
+    validated.sport,
+    validated.league,
+    validated.homeTeam,
+    validated.awayTeam,
+    validated.startTimeIso,
+    validated.allowDraw ? 1 : 0,
+    createdAt
+  ).first<{ id: number }>()
+
+  if (!insertResult?.id) {
+    return errorResponse('创建自定义比赛失败', 500)
+  }
+
+  await env.DB.prepare(
+    `INSERT INTO odds (match_id, bookmaker, market, home_odds, away_odds, draw_odds, updated_at)
+     VALUES (?, 'ADMIN', 'h2h', ?, ?, ?, ?)`
+  ).bind(
+    insertResult.id,
+    validated.homeOdds,
+    validated.awayOdds,
+    validated.drawOdds,
+    createdAt
+  ).run()
+
+  const match = await loadAdminCustomMatchResponse(env, insertResult.id)
+  return json(
+    {
+      message: '自定义比赛创建成功',
+      match
+    },
+    { status: 201 }
+  )
+}
+
+async function handleUpdateAdminMatch(request: Request, env: Env, matchId: number): Promise<Response> {
+  const adminUserId = await requireAdminUserId(request, env)
+  if (adminUserId instanceof Response) return adminUserId
+
+  const existing = await loadAdminCustomMatchResponse(env, matchId)
+  if (!existing) {
+    return errorResponse('自定义比赛不存在', 404)
+  }
+
+  if (existing.locked) {
+    return errorResponse('该比赛已有下注，不能再修改核心信息和赔率', 409)
+  }
+
+  if (existing.status === 'finished') {
+    return errorResponse('已结算比赛不能再编辑', 409)
+  }
+
+  const body = await readJson<CustomMatchPayload>(request)
+  const validated = validateCustomMatchInput(body)
+  if (validated instanceof Response) return validated
+
+  const updatedAt = nowIso()
+  await env.DB.prepare(
+    `UPDATE matches
+     SET sport = ?, league = ?, home_team = ?, away_team = ?, start_time = ?, status = 'upcoming',
+         source_type = 'custom', allow_draw = ?, home_score = NULL, away_score = NULL
+     WHERE id = ? AND source_type = 'custom'`
+  ).bind(
+    validated.sport,
+    validated.league,
+    validated.homeTeam,
+    validated.awayTeam,
+    validated.startTimeIso,
+    validated.allowDraw ? 1 : 0,
+    matchId
+  ).run()
+
+  await env.DB.prepare(
+    `INSERT INTO odds (match_id, bookmaker, market, home_odds, away_odds, draw_odds, updated_at)
+     VALUES (?, 'ADMIN', 'h2h', ?, ?, ?, ?)
+     ON CONFLICT(match_id, bookmaker, market) DO UPDATE SET
+       home_odds = excluded.home_odds,
+       away_odds = excluded.away_odds,
+       draw_odds = excluded.draw_odds,
+       updated_at = excluded.updated_at`
+  ).bind(
+    matchId,
+    validated.homeOdds,
+    validated.awayOdds,
+    validated.drawOdds,
+    updatedAt
+  ).run()
+
+  const match = await loadAdminCustomMatchResponse(env, matchId)
+  return json({
+    message: '自定义比赛已更新',
+    match
+  })
+}
+
+async function handleSettleAdminMatch(request: Request, env: Env, matchId: number): Promise<Response> {
+  const adminUserId = await requireAdminUserId(request, env)
+  if (adminUserId instanceof Response) return adminUserId
+
+  const existing = await loadAdminCustomMatchResponse(env, matchId)
+  if (!existing) {
+    return errorResponse('自定义比赛不存在', 404)
+  }
+
+  if (existing.status === 'finished') {
+    return errorResponse('该比赛已经结算完成', 409)
+  }
+
+  const body = await readJson<CustomMatchSettlementPayload>(request)
+  const homeScore = parseNonNegativeInteger(body?.home_score)
+  const awayScore = parseNonNegativeInteger(body?.away_score)
+  if (homeScore === null || awayScore === null) {
+    return errorResponse('比分必须是大于等于 0 的整数', 400)
+  }
+
+  if (!existing.allow_draw && homeScore === awayScore) {
+    return errorResponse('该比赛不允许平局，请录入非平分比分', 400)
+  }
+
+  await env.DB.prepare(
+    `UPDATE matches
+     SET status = 'finished', home_score = ?, away_score = ?
+     WHERE id = ? AND source_type = 'custom'`
+  ).bind(homeScore, awayScore, matchId).run()
+
+  const settlement = await settlePendingBets(env, {
+    matchId,
+    sourceType: 'custom'
+  })
+  const match = await loadAdminCustomMatchResponse(env, matchId)
+
+  return json({
+    message: `比赛已结算：${settlement.settled} 单（赢 ${settlement.won} / 输 ${settlement.lost} / 退款 ${settlement.cancelled}）`,
+    match,
+    settlement
   })
 }
 

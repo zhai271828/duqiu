@@ -24,6 +24,8 @@ export const SCHEMA_STATEMENTS = [
     away_team TEXT NOT NULL,
     start_time TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'upcoming',
+    source_type TEXT NOT NULL DEFAULT 'synced',
+    allow_draw INTEGER NOT NULL DEFAULT 1,
     home_score INTEGER,
     away_score INTEGER,
     created_at TEXT NOT NULL
@@ -74,6 +76,7 @@ export const SCHEMA_STATEMENTS = [
   `CREATE INDEX IF NOT EXISTS idx_matches_sport_start_time ON matches (sport, start_time)`,
   `CREATE INDEX IF NOT EXISTS idx_matches_status ON matches (status)`,
   `CREATE INDEX IF NOT EXISTS idx_matches_league ON matches (league)`,
+  `CREATE INDEX IF NOT EXISTS idx_matches_source_type ON matches (source_type)`,
   `CREATE INDEX IF NOT EXISTS idx_bets_user_id ON bets (user_id)`,
   `CREATE INDEX IF NOT EXISTS idx_bets_match_id ON bets (match_id)`,
   `CREATE INDEX IF NOT EXISTS idx_bets_status ON bets (status)`,

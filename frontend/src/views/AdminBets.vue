@@ -8,6 +8,8 @@
       <el-button type="primary" @click="fetchAll" :loading="loading || usersLoading">刷新数据</el-button>
     </div>
 
+    <AdminSubnav />
+
     <el-card class="summary-card">
       <div class="summary-grid">
         <div class="summary-item">
@@ -258,6 +260,7 @@ import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '../api/axios'
 import { formatMoney, formatTime } from '../utils/format'
+import AdminSubnav from '../components/AdminSubnav.vue'
 
 const loading = ref(false)
 const total = ref(0)

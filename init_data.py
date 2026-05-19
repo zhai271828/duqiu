@@ -30,7 +30,7 @@ def ensure_admin_user():
         email='admin@test.com',
         email_verified=True
     )
-    user.set_password('admin123')
+    user.set_password('change-me-admin-password')
     db.session.add(user)
     db.session.commit()
     print(f"  创建测试用户: admin (余额: {user.balance})")

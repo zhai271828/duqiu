@@ -6,7 +6,7 @@
   "workers_dev": true,
   "routes": [
     {
-      "pattern": "api.can666.xyz",
+      "pattern": "api.example.com",
       "custom_domain": true
     }
   ],
@@ -17,8 +17,8 @@
 		{
 			"binding": "DB",
 			"database_name": "betting-simulator-db",
-			"database_id": "4f249e9f-b878-42f7-a52a-2a648e56e9a5",
-			"preview_database_id": "4f249e9f-b878-42f7-a52a-2a648e56e9a5",
+			"database_id": "your-d1-database-id",
+			"preview_database_id": "your-d1-preview-database-id",
 			"migrations_dir": "migrations"
 		}
 	],
@@ -28,6 +28,6 @@
     "ODDS_API_DAILY_LIMIT": "16",
     "FOOTBALL_DATA_BASE_URL": "https://api.football-data.org/v4",
     "THE_SPORTS_DB_BASE_URL": "https://www.thesportsdb.com/api/v1/json/3",
-    "ADMIN_EMAILS": "can105659@gmail.com"
+    "ADMIN_EMAILS": "admin@example.com"
   }
 }

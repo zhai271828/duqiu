@@ -734,22 +734,22 @@ async function main() {
 
   const adminUser: MockFirebaseUser = {
     uid: 'admin-uid-1',
-    email: 'can105659@gmail.com',
-    password: 'admin123',
+    email: 'admin@example.com',
+    password: 'change-me-admin-password',
     emailVerified: false
   }
   firebaseUsers.set(adminUser.email, adminUser)
 
   const adminLogin = await callApi('/api/auth/login', {
     method: 'POST',
-    body: JSON.stringify({ identifier: 'admin', password: 'admin123' }),
+    body: JSON.stringify({ identifier: 'admin', password: 'change-me-admin-password' }),
     headers: { 'content-type': 'application/json' }
   })
   if (
     adminLogin.response.status !== 200 ||
     adminLogin.body.user.is_admin !== true ||
     adminLogin.body.user.email_verified !== true ||
-    adminLogin.body.user.email !== 'can105659@gmail.com'
+    adminLogin.body.user.email !== 'admin@example.com'
   ) {
     throw new Error(`admin login failed: ${JSON.stringify(adminLogin.body)}`)
   }
@@ -862,7 +862,290 @@ async function main() {
     throw new Error(`duplicate redeem should be rejected: ${JSON.stringify(duplicateRedeem.body)}`)
   }
 
-  const placeBet = await callApi('/api/bets', {
+  const customDrawMatch = await callApi('/api/admin/matches', {
+    method: 'POST',
+    headers: adminHeaders,
+    body: JSON.stringify({
+      sport: 'soccer',
+      league: 'Custom Cup',
+      home_team: 'Red FC',
+      away_team: 'Blue FC',
+      start_time: '2099-05-18T12:00:00Z',
+      allow_draw: true,
+      odds: {
+        home: 2.1,
+        draw: 3.3,
+        away: 2.9
+      }
+    })
+  })
+  if (
+    customDrawMatch.response.status !== 201 ||
+    customDrawMatch.body.match?.source_type !== 'custom' ||
+    customDrawMatch.body.match?.allow_draw !== true
+  ) {
+    throw new Error(`create custom draw match failed: ${JSON.stringify(customDrawMatch.body)}`)
+  }
+
+  const customDrawMatchId = Number(customDrawMatch.body.match.id)
+  const adminCustomMatches = await callApi('/api/admin/matches?page=1&page_size=10', {
+    method: 'GET',
+    headers: { authorization: `Bearer ${adminLogin.body.id_token as string}` }
+  })
+  if (
+    adminCustomMatches.response.status !== 200 ||
+    !(adminCustomMatches.body.matches as Array<{ id: number }>).some((match) => match.id === customDrawMatchId)
+  ) {
+    throw new Error(`admin custom matches list failed: ${JSON.stringify(adminCustomMatches.body)}`)
+  }
+
+  const customDrawDetail = await callApi(`/api/admin/matches/${customDrawMatchId}`, {
+    method: 'GET',
+    headers: { authorization: `Bearer ${adminLogin.body.id_token as string}` }
+  })
+  if (
+    customDrawDetail.response.status !== 200 ||
+    customDrawDetail.body.match?.odds_rows?.[0]?.draw_odds !== 3.3
+  ) {
+    throw new Error(`admin custom match detail failed: ${JSON.stringify(customDrawDetail.body)}`)
+  }
+
+  const leagues = await callApi('/api/matches/leagues')
+  if (
+    leagues.response.status !== 200 ||
+    !(leagues.body.leagues as string[]).includes('Custom Cup')
+  ) {
+    throw new Error(`custom league should appear in leagues endpoint: ${JSON.stringify(leagues.body)}`)
+  }
+
+  const matchesWithCustom = await callApi('/api/matches?date=all')
+  const customDrawPublicMatch = (matchesWithCustom.body.matches as Array<{
+    id: number
+    source_type?: string
+    allow_draw?: boolean
+  }>).find((item) => item.id === customDrawMatchId)
+  if (
+    matchesWithCustom.response.status !== 200 ||
+    !customDrawPublicMatch ||
+    customDrawPublicMatch.source_type !== 'custom' ||
+    customDrawPublicMatch.allow_draw !== true
+  ) {
+    throw new Error(`custom match should appear in public matches: ${JSON.stringify(matchesWithCustom.body)}`)
+  }
+
+  const customPublicDetail = await callApi(`/api/matches/${customDrawMatchId}`)
+  if (
+    customPublicDetail.response.status !== 200 ||
+    customPublicDetail.body.match?.source_type !== 'custom' ||
+    customPublicDetail.body.match?.allow_draw !== true
+  ) {
+    throw new Error(`custom public detail failed: ${JSON.stringify(customPublicDetail.body)}`)
+  }
+
+  const customDrawBet = await callApi('/api/bets', {
+    method: 'POST',
+    headers: verifiedHeaders,
+    body: JSON.stringify({
+      match_id: customDrawMatchId,
+      selection: 'draw',
+      odds: 9999,
+      amount: 120,
+      bet_type: 'h2h'
+    })
+  })
+  if (
+    customDrawBet.response.status !== 201 ||
+    Number(customDrawBet.body.bet?.odds) >= 9999
+  ) {
+    throw new Error(`custom draw bet failed: ${JSON.stringify(customDrawBet.body)}`)
+  }
+
+  const customNoDrawMatch = await callApi('/api/admin/matches', {
+    method: 'POST',
+    headers: adminHeaders,
+    body: JSON.stringify({
+      sport: 'soccer',
+      league: 'Knockout Stage',
+      home_team: 'Alpha FC',
+      away_team: 'Beta FC',
+      start_time: '2099-05-18T13:00:00Z',
+      allow_draw: false,
+      odds: {
+        home: 1.8,
+        away: 4.2
+      }
+    })
+  })
+  if (
+    customNoDrawMatch.response.status !== 201 ||
+    customNoDrawMatch.body.match?.allow_draw !== false
+  ) {
+    throw new Error(`create no-draw custom match failed: ${JSON.stringify(customNoDrawMatch.body)}`)
+  }
+
+  const customNoDrawMatchId = Number(customNoDrawMatch.body.match.id)
+  const editableCustomMatch = await callApi(`/api/admin/matches/${customNoDrawMatchId}`, {
+    method: 'PUT',
+    headers: adminHeaders,
+    body: JSON.stringify({
+      sport: 'soccer',
+      league: 'Knockout Stage',
+      home_team: 'Alpha FC',
+      away_team: 'Beta United',
+      start_time: '2099-05-18T13:30:00Z',
+      allow_draw: false,
+      odds: {
+        home: 1.85,
+        away: 4.4
+      }
+    })
+  })
+  if (
+    editableCustomMatch.response.status !== 200 ||
+    editableCustomMatch.body.match?.away_team !== 'Beta United'
+  ) {
+    throw new Error(`custom match should be editable before bets: ${JSON.stringify(editableCustomMatch.body)}`)
+  }
+
+  const rejectedDrawBet = await callApi('/api/bets', {
+    method: 'POST',
+    headers: verifiedHeaders,
+    body: JSON.stringify({
+      match_id: customNoDrawMatchId,
+      selection: 'draw',
+      odds: 8888,
+      amount: 50,
+      bet_type: 'h2h'
+    })
+  })
+  if (rejectedDrawBet.response.status !== 400) {
+    throw new Error(`draw should be rejected for no-draw custom match: ${JSON.stringify(rejectedDrawBet.body)}`)
+  }
+
+  const customNoDrawBet = await callApi('/api/bets', {
+    method: 'POST',
+    headers: verifiedHeaders,
+    body: JSON.stringify({
+      match_id: customNoDrawMatchId,
+      selection: 'home',
+      odds: 7777,
+      amount: 80,
+      bet_type: 'h2h'
+    })
+  })
+  if (
+    customNoDrawBet.response.status !== 201 ||
+    Number(customNoDrawBet.body.bet?.odds) >= 7777
+  ) {
+    throw new Error(`place no-draw custom bet failed: ${JSON.stringify(customNoDrawBet.body)}`)
+  }
+
+  const lockedCustomMatch = await callApi(`/api/admin/matches/${customNoDrawMatchId}`, {
+    method: 'PUT',
+    headers: adminHeaders,
+    body: JSON.stringify({
+      sport: 'soccer',
+      league: 'Knockout Stage',
+      home_team: 'Alpha FC',
+      away_team: 'Beta Locked',
+      start_time: '2099-05-18T14:00:00Z',
+      allow_draw: false,
+      odds: {
+        home: 1.9,
+        away: 4.5
+      }
+    })
+  })
+  if (lockedCustomMatch.response.status !== 409) {
+    throw new Error(`custom match should lock after bets: ${JSON.stringify(lockedCustomMatch.body)}`)
+  }
+
+  const rejectedDrawSettlement = await callApi(`/api/admin/matches/${customNoDrawMatchId}/settle`, {
+    method: 'POST',
+    headers: adminHeaders,
+    body: JSON.stringify({
+      home_score: 1,
+      away_score: 1
+    })
+  })
+  if (rejectedDrawSettlement.response.status !== 400) {
+    throw new Error(`draw settlement should fail for no-draw custom match: ${JSON.stringify(rejectedDrawSettlement.body)}`)
+  }
+
+  const settledCustomDraw = await callApi(`/api/admin/matches/${customDrawMatchId}/settle`, {
+    method: 'POST',
+    headers: adminHeaders,
+    body: JSON.stringify({
+      home_score: 2,
+      away_score: 2
+    })
+  })
+  if (
+    settledCustomDraw.response.status !== 200 ||
+    settledCustomDraw.body.settlement?.won !== 1
+  ) {
+    throw new Error(`custom draw settlement failed: ${JSON.stringify(settledCustomDraw.body)}`)
+  }
+
+  const settledCustomNoDraw = await callApi(`/api/admin/matches/${customNoDrawMatchId}/settle`, {
+    method: 'POST',
+    headers: adminHeaders,
+    body: JSON.stringify({
+      home_score: 2,
+      away_score: 1
+    })
+  })
+  if (
+    settledCustomNoDraw.response.status !== 200 ||
+    settledCustomNoDraw.body.settlement?.won !== 1
+  ) {
+    throw new Error(`custom no-draw settlement failed: ${JSON.stringify(settledCustomNoDraw.body)}`)
+  }
+
+  const customPendingMatch = await callApi('/api/admin/matches', {
+    method: 'POST',
+    headers: adminHeaders,
+    body: JSON.stringify({
+      sport: 'soccer',
+      league: 'Manual Pending',
+      home_team: 'Gamma FC',
+      away_team: 'Delta FC',
+      start_time: '2099-05-18T15:00:00Z',
+      allow_draw: false,
+      odds: {
+        home: 1.75,
+        away: 4.8
+      }
+    })
+  })
+  if (customPendingMatch.response.status !== 201) {
+    throw new Error(`create pending custom match failed: ${JSON.stringify(customPendingMatch.body)}`)
+  }
+
+  const customPendingMatchId = Number(customPendingMatch.body.match.id)
+  const pendingCustomBet = await callApi('/api/bets', {
+    method: 'POST',
+    headers: verifiedHeaders,
+    body: JSON.stringify({
+      match_id: customPendingMatchId,
+      selection: 'home',
+      odds: 6666,
+      amount: 60,
+      bet_type: 'h2h'
+    })
+  })
+  if (
+    pendingCustomBet.response.status !== 201 ||
+    Number(pendingCustomBet.body.bet?.odds) >= 6666
+  ) {
+    throw new Error(`place pending custom bet failed: ${JSON.stringify(pendingCustomBet.body)}`)
+  }
+
+  await env.DB.prepare(`UPDATE matches SET start_time = ? WHERE id = ?`)
+    .bind('2099-05-17T08:30:00Z', customPendingMatchId)
+    .run()
+
+  const syncedSoccerBet = await callApi('/api/bets', {
     method: 'POST',
     headers: verifiedHeaders,
     body: JSON.stringify({
@@ -873,12 +1156,12 @@ async function main() {
       bet_type: 'h2h'
     })
   })
-  if (placeBet.response.status !== 201) throw new Error(`place bet failed: ${JSON.stringify(placeBet.body)}`)
-  if (Number(placeBet.body.bet?.odds) >= 9999) {
-    throw new Error(`server trusted tampered odds: ${JSON.stringify(placeBet.body)}`)
+  if (syncedSoccerBet.response.status !== 201) throw new Error(`place bet failed: ${JSON.stringify(syncedSoccerBet.body)}`)
+  if (Number(syncedSoccerBet.body.bet?.odds) >= 9999) {
+    throw new Error(`server trusted tampered odds: ${JSON.stringify(syncedSoccerBet.body)}`)
   }
 
-  const placeNbaBet = await callApi('/api/bets', {
+  const syncedNbaBet = await callApi('/api/bets', {
     method: 'POST',
     headers: verifiedHeaders,
     body: JSON.stringify({
@@ -889,9 +1172,9 @@ async function main() {
       bet_type: 'h2h'
     })
   })
-  if (placeNbaBet.response.status !== 201) throw new Error(`place nba bet failed: ${JSON.stringify(placeNbaBet.body)}`)
-  if (Number(placeNbaBet.body.bet?.odds) >= 8888) {
-    throw new Error(`server trusted nba tampered odds: ${JSON.stringify(placeNbaBet.body)}`)
+  if (syncedNbaBet.response.status !== 201) throw new Error(`place nba bet failed: ${JSON.stringify(syncedNbaBet.body)}`)
+  if (Number(syncedNbaBet.body.bet?.odds) >= 8888) {
+    throw new Error(`server trusted nba tampered odds: ${JSON.stringify(syncedNbaBet.body)}`)
   }
 
   await runScheduled()
@@ -903,9 +1186,17 @@ async function main() {
   if (settledBets.response.status !== 200) {
     throw new Error(`get settled bets failed: ${JSON.stringify(settledBets.body)}`)
   }
-  const statuses = (settledBets.body.bets as Array<{ status: string }>).map((bet) => bet.status).sort()
-  if (statuses.join(',') !== 'won,won') {
-    throw new Error(`expected won bets after scheduled settlement: ${JSON.stringify(settledBets.body)}`)
+  const betStatusById = new Map(
+    (settledBets.body.bets as Array<{ id: number; status: string }>).map((bet) => [bet.id, bet.status])
+  )
+  if (
+    betStatusById.get(customDrawBet.body.bet.id) !== 'won' ||
+    betStatusById.get(customNoDrawBet.body.bet.id) !== 'won' ||
+    betStatusById.get(syncedSoccerBet.body.bet.id) !== 'won' ||
+    betStatusById.get(syncedNbaBet.body.bet.id) !== 'won' ||
+    betStatusById.get(pendingCustomBet.body.bet.id) !== 'pending'
+  ) {
+    throw new Error(`unexpected bet statuses after custom and scheduled settlement: ${JSON.stringify(settledBets.body)}`)
   }
 
   const refreshedProfile = await callApi('/api/auth/profile', {
@@ -1077,13 +1368,16 @@ async function main() {
     throw new Error(`expected no pending skip reason: ${JSON.stringify(noPendingAdminSystem.body)}`)
   }
 
+  const finalBetCount = await env.DB.prepare(`SELECT COUNT(*) AS count FROM bets`).first<{ count: number }>()
+  const finalMatchCount = await env.DB.prepare(`SELECT COUNT(*) AS count FROM matches`).first<{ count: number }>()
+
   console.log(
     JSON.stringify(
       {
         smoke: 'passed',
         users: 2,
-        bets: 3,
-        matches: 5,
+        bets: Number(finalBetCount?.count || 0),
+        matches: Number(finalMatchCount?.count || 0),
         synced_schedule: syncSchedule.body.synced,
         synced_odds: syncOdds.body.synced
       },

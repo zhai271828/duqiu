@@ -2,7 +2,7 @@ const JSON_HEADERS = {
   'content-type': 'application/json; charset=utf-8',
   'cache-control': 'no-store',
   'access-control-allow-origin': '*',
-  'access-control-allow-methods': 'GET,POST,OPTIONS',
+  'access-control-allow-methods': 'GET,POST,PUT,OPTIONS',
   'access-control-allow-headers': 'Content-Type, Authorization',
   'x-content-type-options': 'nosniff',
   'referrer-policy': 'strict-origin-when-cross-origin',
@@ -113,6 +113,8 @@ export function buildMatchResponse(
     away_team: string
     start_time: string
     status: string
+    source_type: string
+    allow_draw: number | boolean
     home_score: number | null
     away_score: number | null
     odds_count?: number
@@ -143,6 +145,8 @@ export function buildMatchResponse(
     away_team: translateTeam(row.away_team),
     start_time: normalizeUtcIso(row.start_time),
     status: row.status,
+    source_type: row.source_type,
+    allow_draw: row.allow_draw === true || row.allow_draw === 1,
     home_score: row.home_score,
     away_score: row.away_score,
     odds,

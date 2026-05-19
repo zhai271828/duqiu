@@ -56,6 +56,12 @@ const routes = [
     meta: { requiresAuth: true, requiresAdmin: true }
   },
   {
+    path: '/admin/matches',
+    name: 'AdminMatches',
+    component: () => import('../views/AdminMatches.vue'),
+    meta: { requiresAuth: true, requiresAdmin: true }
+  },
+  {
     path: '/leaderboard',
     name: 'Leaderboard',
     component: () => import('../views/Leaderboard.vue')
