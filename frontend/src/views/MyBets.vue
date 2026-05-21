@@ -50,7 +50,7 @@
         <div class="bet-details">
           <div class="detail-item">
             <span class="label">投注选项</span>
-            <span class="value">{{ getSelectionText(bet.selection) }}</span>
+            <span class="value">{{ getSelectionText(bet) }}</span>
           </div>
           <div class="detail-item">
             <span class="label">赔率</span>
@@ -88,7 +88,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import api from '../api/axios'
-import { formatTime } from '../utils/format'
+import { formatTime, getMatchSelectionTexts } from '../utils/format'
 
 const activeTab = ref('all')
 const bets = ref([])
@@ -112,13 +112,8 @@ const getStatusText = (status) => {
   return map[status] || status
 }
 
-const getSelectionText = (selection) => {
-  const map = {
-    home: '主胜',
-    draw: '平局',
-    away: '客胜'
-  }
-  return map[selection] || selection
+const getSelectionText = (bet) => {
+  return getMatchSelectionTexts(bet?.match)?.[bet?.selection] || bet?.selection
 }
 
 const fetchBets = async () => {

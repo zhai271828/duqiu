@@ -33,12 +33,12 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="赔率" min-width="160">
+        <el-table-column label="赔率" min-width="220">
           <template #default="{ row }">
             <div class="odds-cell">
-              <span>主 {{ row.odds.home }}</span>
-              <span v-if="row.allow_draw">平 {{ row.odds.draw }}</span>
-              <span>客 {{ row.odds.away }}</span>
+              <span>{{ getSelectionTexts(row).home }} {{ row.odds.home }}</span>
+              <span v-if="row.allow_draw">{{ getSelectionTexts(row).draw }} {{ row.odds.draw }}</span>
+              <span>{{ getSelectionTexts(row).away }} {{ row.odds.away }}</span>
             </div>
           </template>
         </el-table-column>
@@ -96,15 +96,19 @@
           <el-select v-model="editorForm.sport">
             <el-option label="足球" value="soccer" />
             <el-option label="篮球" value="basketball" />
+            <el-option label="其他" value="other" />
           </el-select>
+        </el-form-item>
+        <el-form-item label="是否有主客场">
+          <el-switch v-model="editorForm.has_home_away" />
         </el-form-item>
         <el-form-item label="联赛">
           <el-input v-model="editorForm.league" placeholder="例如：自定义友谊赛 / 英超 / NBA" />
         </el-form-item>
-        <el-form-item label="主队">
+        <el-form-item :label="editorSideLabels.home">
           <el-input v-model="editorForm.home_team" />
         </el-form-item>
-        <el-form-item label="客队">
+        <el-form-item :label="editorSideLabels.away">
           <el-input v-model="editorForm.away_team" />
         </el-form-item>
         <el-form-item label="开赛时间">
@@ -118,13 +122,13 @@
         <el-form-item label="允许平局">
           <el-switch v-model="editorForm.allow_draw" />
         </el-form-item>
-        <el-form-item label="主胜赔率">
+        <el-form-item :label="`${editorSelectionTexts.home}赔率`">
           <el-input-number v-model="editorForm.odds.home" :min="1.01" :step="0.01" :precision="2" />
         </el-form-item>
-        <el-form-item v-if="editorForm.allow_draw" label="平局赔率">
+        <el-form-item v-if="editorForm.allow_draw" :label="`${editorSelectionTexts.draw}赔率`">
           <el-input-number v-model="editorForm.odds.draw" :min="1.01" :step="0.01" :precision="2" />
         </el-form-item>
-        <el-form-item label="客胜赔率">
+        <el-form-item :label="`${editorSelectionTexts.away}赔率`">
           <el-input-number v-model="editorForm.odds.away" :min="1.01" :step="0.01" :precision="2" />
         </el-form-item>
       </el-form>
@@ -156,10 +160,10 @@
       </div>
 
       <el-form :model="settleForm" label-width="110px" style="margin-top: 16px">
-        <el-form-item label="主队比分">
+        <el-form-item :label="`${settleSideLabels.home}比分`">
           <el-input-number v-model="settleForm.home_score" :min="0" :step="1" />
         </el-form-item>
-        <el-form-item label="客队比分">
+        <el-form-item :label="`${settleSideLabels.away}比分`">
           <el-input-number v-model="settleForm.away_score" :min="0" :step="1" />
         </el-form-item>
       </el-form>
@@ -175,10 +179,10 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '../api/axios'
-import { formatTime } from '../utils/format'
+import { formatTime, getMatchSelectionTexts, getMatchSideLabels } from '../utils/format'
 import AdminSubnav from '../components/AdminSubnav.vue'
 
 const loading = ref(false)
@@ -201,6 +205,7 @@ const defaultEditorForm = () => ({
   away_team: '',
   start_time: new Date(Date.now() + 60 * 60 * 1000),
   allow_draw: true,
+  has_home_away: true,
   odds: {
     home: 1.9,
     draw: 3.2,
@@ -215,6 +220,13 @@ const settleForm = reactive({
   away_score: 0
 })
 
+const editorSideLabels = computed(() => getMatchSideLabels(editorForm))
+const editorSelectionTexts = computed(() => getMatchSelectionTexts(editorForm))
+const settleSideLabels = computed(() => getMatchSideLabels(settleMatch.value))
+
+const getSideLabels = (match) => getMatchSideLabels(match)
+const getSelectionTexts = (match) => getMatchSelectionTexts(match)
+
 const loadMatch = async (id) => {
   const response = await api.get(`/admin/matches/${id}`)
   return response.data?.match || null
@@ -227,6 +239,7 @@ const syncForm = (match) => {
   editorForm.away_team = match.away_team || ''
   editorForm.start_time = match.start_time ? new Date(match.start_time) : new Date()
   editorForm.allow_draw = !!match.allow_draw
+  editorForm.has_home_away = match.has_home_away !== false
   editorForm.odds.home = match.odds_rows?.[0]?.home_odds ?? match.odds?.home ?? 1.9
   editorForm.odds.draw = match.odds_rows?.[0]?.draw_odds ?? match.odds?.draw ?? 3.2
   editorForm.odds.away = match.odds_rows?.[0]?.away_odds ?? match.odds?.away ?? 3.2
@@ -306,6 +319,7 @@ const buildPayload = () => ({
   away_team: editorForm.away_team.trim(),
   start_time: new Date(editorForm.start_time).toISOString(),
   allow_draw: !!editorForm.allow_draw,
+  has_home_away: !!editorForm.has_home_away,
   odds: {
     home: Number(editorForm.odds.home),
     draw: editorForm.allow_draw ? Number(editorForm.odds.draw) : null,
@@ -379,6 +393,11 @@ watch(
   (sport) => {
     if (sport === 'basketball') {
       editorForm.allow_draw = false
+    }
+    if (sport === 'other') {
+      editorForm.has_home_away = false
+    } else {
+      editorForm.has_home_away = true
     }
   }
 )

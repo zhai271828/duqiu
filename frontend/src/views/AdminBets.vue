@@ -211,7 +211,7 @@
         </el-table-column>
         <el-table-column prop="selection" label="选项" width="90">
           <template #default="{ row }">
-            {{ selectionText(row.selection) }}
+            {{ selectionText(row) }}
           </template>
         </el-table-column>
         <el-table-column prop="odds" label="赔率" width="90" />
@@ -259,7 +259,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '../api/axios'
-import { formatMoney, formatTime } from '../utils/format'
+import { formatMoney, formatTime, getMatchSelectionTexts } from '../utils/format'
 import AdminSubnav from '../components/AdminSubnav.vue'
 
 const loading = ref(false)
@@ -332,13 +332,8 @@ const skipReasonText = (reason) => {
   return map[reason] || reason || '无'
 }
 
-const selectionText = (selection) => {
-  const map = {
-    home: '主胜',
-    draw: '平局',
-    away: '客胜'
-  }
-  return map[selection] || selection
+const selectionText = (row) => {
+  return getMatchSelectionTexts(row?.match)?.[row?.selection] || row?.selection
 }
 
 const statusText = (status) => {

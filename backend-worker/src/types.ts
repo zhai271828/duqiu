@@ -38,6 +38,7 @@ export interface DbMatchSummaryRow {
   status: string
   source_type: string
   allow_draw: number
+  has_home_away: number
   home_score: number | null
   away_score: number | null
   odds_count: number
@@ -57,6 +58,7 @@ export interface DbMatchRow {
   status: string
   source_type: string
   allow_draw: number
+  has_home_away: number
   home_score: number | null
   away_score: number | null
   created_at: string
@@ -90,6 +92,8 @@ export interface DbBetRow {
   away_team?: string
   league?: string
   start_time?: string
+  has_home_away?: number
+  allow_draw?: number
 }
 
 export interface OddsApiEvent {
@@ -139,6 +143,7 @@ export interface ResultSyncCandidate {
   status: string
   source_type?: string
   allow_draw?: number
+  has_home_away?: number
 }
 
 export interface ScheduleEvent {

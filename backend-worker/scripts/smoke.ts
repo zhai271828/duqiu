@@ -866,12 +866,13 @@ async function main() {
     method: 'POST',
     headers: adminHeaders,
     body: JSON.stringify({
-      sport: 'soccer',
+      sport: 'other',
       league: 'Custom Cup',
       home_team: 'Red FC',
       away_team: 'Blue FC',
       start_time: '2099-05-18T12:00:00Z',
       allow_draw: true,
+      has_home_away: false,
       odds: {
         home: 2.1,
         draw: 3.3,
@@ -882,7 +883,10 @@ async function main() {
   if (
     customDrawMatch.response.status !== 201 ||
     customDrawMatch.body.match?.source_type !== 'custom' ||
-    customDrawMatch.body.match?.allow_draw !== true
+    customDrawMatch.body.match?.allow_draw !== true ||
+    customDrawMatch.body.match?.has_home_away !== false ||
+    customDrawMatch.body.match?.selection_texts?.home !== 'Red FC 胜' ||
+    customDrawMatch.body.match?.side_labels?.home !== '队伍A'
   ) {
     throw new Error(`create custom draw match failed: ${JSON.stringify(customDrawMatch.body)}`)
   }
@@ -905,7 +909,8 @@ async function main() {
   })
   if (
     customDrawDetail.response.status !== 200 ||
-    customDrawDetail.body.match?.odds_rows?.[0]?.draw_odds !== 3.3
+    customDrawDetail.body.match?.odds_rows?.[0]?.draw_odds !== 3.3 ||
+    customDrawDetail.body.match?.has_home_away !== false
   ) {
     throw new Error(`admin custom match detail failed: ${JSON.stringify(customDrawDetail.body)}`)
   }
@@ -923,12 +928,14 @@ async function main() {
     id: number
     source_type?: string
     allow_draw?: boolean
+    has_home_away?: boolean
   }>).find((item) => item.id === customDrawMatchId)
   if (
     matchesWithCustom.response.status !== 200 ||
     !customDrawPublicMatch ||
     customDrawPublicMatch.source_type !== 'custom' ||
-    customDrawPublicMatch.allow_draw !== true
+    customDrawPublicMatch.allow_draw !== true ||
+    customDrawPublicMatch.has_home_away !== false
   ) {
     throw new Error(`custom match should appear in public matches: ${JSON.stringify(matchesWithCustom.body)}`)
   }
@@ -937,7 +944,9 @@ async function main() {
   if (
     customPublicDetail.response.status !== 200 ||
     customPublicDetail.body.match?.source_type !== 'custom' ||
-    customPublicDetail.body.match?.allow_draw !== true
+    customPublicDetail.body.match?.allow_draw !== true ||
+    customPublicDetail.body.match?.has_home_away !== false ||
+    customPublicDetail.body.match?.selection_texts?.away !== 'Blue FC 胜'
   ) {
     throw new Error(`custom public detail failed: ${JSON.stringify(customPublicDetail.body)}`)
   }
@@ -970,6 +979,7 @@ async function main() {
       away_team: 'Beta FC',
       start_time: '2099-05-18T13:00:00Z',
       allow_draw: false,
+      has_home_away: false,
       odds: {
         home: 1.8,
         away: 4.2
@@ -978,7 +988,8 @@ async function main() {
   })
   if (
     customNoDrawMatch.response.status !== 201 ||
-    customNoDrawMatch.body.match?.allow_draw !== false
+    customNoDrawMatch.body.match?.allow_draw !== false ||
+    customNoDrawMatch.body.match?.has_home_away !== false
   ) {
     throw new Error(`create no-draw custom match failed: ${JSON.stringify(customNoDrawMatch.body)}`)
   }
@@ -994,6 +1005,7 @@ async function main() {
       away_team: 'Beta United',
       start_time: '2099-05-18T13:30:00Z',
       allow_draw: false,
+      has_home_away: false,
       odds: {
         home: 1.85,
         away: 4.4
@@ -1050,6 +1062,7 @@ async function main() {
       away_team: 'Beta Locked',
       start_time: '2099-05-18T14:00:00Z',
       allow_draw: false,
+      has_home_away: false,
       odds: {
         home: 1.9,
         away: 4.5
@@ -1106,19 +1119,23 @@ async function main() {
     method: 'POST',
     headers: adminHeaders,
     body: JSON.stringify({
-      sport: 'soccer',
+      sport: 'basketball',
       league: 'Manual Pending',
       home_team: 'Gamma FC',
       away_team: 'Delta FC',
       start_time: '2099-05-18T15:00:00Z',
       allow_draw: false,
+      has_home_away: false,
       odds: {
         home: 1.75,
         away: 4.8
       }
     })
   })
-  if (customPendingMatch.response.status !== 201) {
+  if (
+    customPendingMatch.response.status !== 201 ||
+    customPendingMatch.body.match?.has_home_away !== false
+  ) {
     throw new Error(`create pending custom match failed: ${JSON.stringify(customPendingMatch.body)}`)
   }
 

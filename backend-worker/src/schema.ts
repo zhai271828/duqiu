@@ -26,6 +26,7 @@ export const SCHEMA_STATEMENTS = [
     status TEXT NOT NULL DEFAULT 'upcoming',
     source_type TEXT NOT NULL DEFAULT 'synced',
     allow_draw INTEGER NOT NULL DEFAULT 1,
+    has_home_away INTEGER NOT NULL DEFAULT 1,
     home_score INTEGER,
     away_score INTEGER,
     created_at TEXT NOT NULL

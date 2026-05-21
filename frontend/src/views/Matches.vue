@@ -81,15 +81,15 @@
         <div class="match-odds" v-if="match.avg_odds && getDisplayStatus(match) === 'upcoming'">
           <div class="odds-row">
             <div class="odd-item" v-if="match.avg_odds.home">
-              <span class="odd-label">主胜</span>
+              <span class="odd-label">{{ getSelectionLabel(match, 'home') }}</span>
               <span class="odd-value">{{ match.avg_odds.home }}</span>
             </div>
             <div class="odd-item" v-if="match.avg_odds.draw">
-              <span class="odd-label">平局</span>
+              <span class="odd-label">{{ getSelectionLabel(match, 'draw') }}</span>
               <span class="odd-value">{{ match.avg_odds.draw }}</span>
             </div>
             <div class="odd-item" v-if="match.avg_odds.away">
-              <span class="odd-label">客胜</span>
+              <span class="odd-label">{{ getSelectionLabel(match, 'away') }}</span>
               <span class="odd-value">{{ match.avg_odds.away }}</span>
             </div>
           </div>
@@ -125,6 +125,7 @@ import { Loading, Refresh, Download } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import api from '../api/axios'
 import { useAuthStore } from '../stores/auth'
+import { getMatchSelectionTexts } from '../utils/format'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -147,6 +148,7 @@ const filteredMatches = computed(() => {
 })
 
 const canSyncMatches = computed(() => authStore.isAuthenticated && authStore.isAdmin)
+const getSelectionLabel = (match, selection) => getMatchSelectionTexts(match)?.[selection] || ''
 
 const getMatchStartMs = (match) => {
   const startMs = new Date(match?.start_time || '').getTime()

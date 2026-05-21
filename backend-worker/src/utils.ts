@@ -103,6 +103,33 @@ export function shanghaiDateRange(
   }
 }
 
+export function buildSideLabels(hasHomeAway: boolean) {
+  return {
+    home: hasHomeAway ? '主队' : '队伍A',
+    away: hasHomeAway ? '客队' : '队伍B'
+  }
+}
+
+export function buildSelectionTexts(
+  homeTeam: string,
+  awayTeam: string,
+  hasHomeAway: boolean
+) {
+  if (hasHomeAway) {
+    return {
+      home: '主胜',
+      draw: '平局',
+      away: '客胜'
+    }
+  }
+
+  return {
+    home: `${homeTeam} 胜`,
+    draw: '平局',
+    away: `${awayTeam} 胜`
+  }
+}
+
 export function buildMatchResponse(
   row: {
     id: number
@@ -115,6 +142,7 @@ export function buildMatchResponse(
     status: string
     source_type: string
     allow_draw: number | boolean
+    has_home_away: number | boolean
     home_score: number | null
     away_score: number | null
     odds_count?: number
@@ -136,17 +164,24 @@ export function buildMatchResponse(
     avg_odds.away = round2(row.avg_away_odds)
   }
 
+  const homeTeam = translateTeam(row.home_team)
+  const awayTeam = translateTeam(row.away_team)
+  const hasHomeAway = row.has_home_away === true || row.has_home_away === 1
+
   return {
     id: row.id,
     external_id: row.external_id,
     sport: row.sport,
     league: translateLeague(row.league),
-    home_team: translateTeam(row.home_team),
-    away_team: translateTeam(row.away_team),
+    home_team: homeTeam,
+    away_team: awayTeam,
     start_time: normalizeUtcIso(row.start_time),
     status: row.status,
     source_type: row.source_type,
     allow_draw: row.allow_draw === true || row.allow_draw === 1,
+    has_home_away: hasHomeAway,
+    side_labels: buildSideLabels(hasHomeAway),
+    selection_texts: buildSelectionTexts(homeTeam, awayTeam, hasHomeAway),
     home_score: row.home_score,
     away_score: row.away_score,
     odds,

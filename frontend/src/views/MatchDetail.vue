@@ -14,7 +14,7 @@
       <div class="teams-section">
         <div class="team home">
           <h2>{{ match.home_team }}</h2>
-          <span class="label">主队</span>
+          <span class="label">{{ sideLabels.home }}</span>
         </div>
         <div class="score-section" v-if="displayStatus === 'finished' || displayStatus === 'live'">
           <div class="score">
@@ -26,7 +26,7 @@
         <div class="vs" v-else>VS</div>
         <div class="team away">
           <h2>{{ match.away_team }}</h2>
-          <span class="label">客队</span>
+          <span class="label">{{ sideLabels.away }}</span>
         </div>
       </div>
     </el-card>
@@ -61,7 +61,7 @@
             @click="selectOdds('home')"
             v-if="match.avg_odds.home"
           >
-            <div class="odd-label">主胜</div>
+            <div class="odd-label">{{ selectionTexts.home }}</div>
             <div class="odd-value">{{ match.avg_odds.home }}</div>
           </div>
           <div
@@ -70,7 +70,7 @@
             @click="selectOdds('draw')"
             v-if="match.allow_draw && match.avg_odds.draw"
           >
-            <div class="odd-label">平局</div>
+            <div class="odd-label">{{ selectionTexts.draw }}</div>
             <div class="odd-value">{{ match.avg_odds.draw }}</div>
           </div>
           <div
@@ -79,7 +79,7 @@
             @click="selectOdds('away')"
             v-if="match.avg_odds.away"
           >
-            <div class="odd-label">客胜</div>
+            <div class="odd-label">{{ selectionTexts.away }}</div>
             <div class="odd-value">{{ match.avg_odds.away }}</div>
           </div>
         </div>
@@ -178,17 +178,17 @@
     <el-dialog v-model="showOddsSources" title="赔率数据来源" width="800px">
       <el-table :data="match.odds" border stripe>
         <el-table-column prop="bookmaker" label="博彩公司" width="150" />
-        <el-table-column label="主胜" width="100">
+        <el-table-column :label="selectionTexts.home" width="140">
           <template #default="{ row }">
             <span :class="{ highlight: isHighest(row, 'home') }">{{ row.home_odds }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="平局" width="100">
+        <el-table-column :label="selectionTexts.draw" width="100">
           <template #default="{ row }">
             <span :class="{ highlight: isHighest(row, 'draw') }">{{ row.draw_odds }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="客胜" width="100">
+        <el-table-column :label="selectionTexts.away" width="140">
           <template #default="{ row }">
             <span :class="{ highlight: isHighest(row, 'away') }">{{ row.away_odds }}</span>
           </template>
@@ -214,6 +214,7 @@ import { ElMessage } from 'element-plus'
 import { Loading, View } from '@element-plus/icons-vue'
 import { useAuthStore } from '../stores/auth'
 import api from '../api/axios'
+import { getMatchSelectionTexts, getMatchSideLabels } from '../utils/format'
 
 const route = useRoute()
 const router = useRouter()
@@ -242,6 +243,8 @@ const displayStatus = computed(() => {
 })
 
 const canBet = computed(() => displayStatus.value === 'upcoming')
+const sideLabels = computed(() => getMatchSideLabels(match.value))
+const selectionTexts = computed(() => getMatchSelectionTexts(match.value))
 
 const potentialWin = computed(() => {
   if (!match.value?.avg_odds || !betSelection.value) return 0
@@ -256,12 +259,7 @@ const potentialWin = computed(() => {
 })
 
 const getSelectionText = (selection) => {
-  const map = {
-    home: '主胜',
-    draw: '平局',
-    away: '客胜'
-  }
-  return map[selection] || ''
+  return selectionTexts.value?.[selection] || ''
 }
 
 const getSelectedOdds = () => {
